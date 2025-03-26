@@ -1,26 +1,20 @@
-# Chapter 2: Emitting Basic MLIR
+# 第二章：生成基础MLIR
 
 [TOC]
 
-Now that we're familiar with our language and the AST, let's see how MLIR can
-help to compile Toy.
+既然我们已经熟悉了编程语言及其抽象语法树(AST)，现在让我们看看MLIR如何帮助编译Toy语言。
 
-## Introduction: Multi-Level Intermediate Representation
+## MLIR简介：多级中间表示
 
-Other compilers, like LLVM (see the
-[Kaleidoscope tutorial](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)),
-offer a fixed set of predefined types and (usually *low-level* / RISC-like)
-instructions. It is up to the frontend for a given language to perform any
-language-specific type-checking, analysis, or transformation before emitting
-LLVM IR. For example, Clang will use its AST to perform not only static analysis
-but also transformations, such as C++ template instantiation through AST cloning
-and rewrite. Finally, languages with construction at a higher-level than C/C++
-may require non-trivial lowering from their AST to generate LLVM IR.
+传统编译器（如LLVM，参见[Kaleidoscope教程](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)）
+通常提供一组固定的预定义类型和（通常是低层级/RISC风格的）指令集。
+语言前端需要自行处理所有语言特定的类型检查、分析和转换工作，然后才能生成LLVM IR。
+例如，Clang不仅会利用其AST进行静态分析，还会执行诸如通过AST克隆和重写来实现C++模板实例化等转换操作。
+对于比C/C++更高级的语言，从AST到LLVM IR的转换过程往往更加复杂。
 
-As a consequence, multiple frontends end up reimplementing significant pieces of
-infrastructure to support the need for these analyses and transformation. MLIR
-addresses this issue by being designed for extensibility. As such, there are few
-pre-defined instructions (*operations* in MLIR terminology) or types.
+这种情况导致不同前端不得不重复实现大量相似的基础设施来支持这些分析和转换需求。
+MLIR通过可扩展的设计解决了这个问题——它几乎没有预定义指令（MLIR术语中称为*操作operations*）或类型。
+
 
 ## Interfacing with MLIR
 
@@ -40,78 +34,78 @@ modules, etc.
 
 Here is the MLIR assembly for the Toy `transpose` operations:
 
+
+## 与MLIR的交互接口
+
+[语言参考 Language Reference](../../LangRef.md)
+
+MLIR被设计为完全可扩展的基础架构，不存在封闭(closed)的属性(attributes)集（即常量元数据）、操作(operations)或类型(types)。
+MLIR通过[方言(Dialects)](../../LangRef.md/#dialects)的概念实现这种可扩展性。
+Dialect在唯一的`namespace`下为抽象提供分组机制。
+
+在MLIR中，[`操作(Operations)`](../../LangRef.md/#operations)是抽象和计算的核心单元，
+在许多方面类似于LLVM指令。Operations可具有应用特定(application-specific)的语义，
+并能表示LLVM中所有的核心IR结构：指令(instructions)、全局对象(globals)（如函数）、模块(modules)等。
+
+以下是Toy语言`transpose`操作对应的MLIR汇编(assembly)代码：
+
 ```mlir
 %t_tensor = "toy.transpose"(%tensor) {inplace = true} : (tensor<2x3xf64>) -> tensor<3x2xf64> loc("example/file/path":12:1)
 ```
 
-Let's break down the anatomy of this MLIR operation:
+让我们解析这个MLIR operation 的组成结构：
 
 -   `%t_tensor`
 
-    *   The name given to the result defined by this operation (which includes
-        [a prefixed sigil to avoid collisions](../../LangRef.md/#identifiers-and-keywords)).
-        An operation may define zero or more results (in the context of Toy, we
-        will limit ourselves to single-result operations), which are SSA values.
-        The name is used during parsing but is not persistent (e.g., it is not
-        tracked in the in-memory representation of the SSA value).
+    *   operation定义的结果的名称（包括[前缀符号以避免冲突](../../LangRef.md/#identifiers-and-keywords)）。
+        一个operation可以定义零个或多个结果（在 Toy 的上下文中，我们将operation限制为单结果操作），
+        这些结果是 SSA 值。该名称在解析过程中使用，但并不是持久的（例如，它不会在 SSA 值的内存表示中被跟踪）。
 
 -   `"toy.transpose"`
 
-    *   The name of the operation. It is expected to be a unique string, with
-        the namespace of the dialect prefixed before the "`.`". This can be read
-        as the `transpose` operation in the `toy` dialect.
+    *   operation的名称。预计它是一个唯一的字符串，且在“`.`”之前会加上方言的命名空间(namespace)。
+        可以将其理解为 `toy` dialect中的 `transpose` operation。
 
 -   `(%tensor)`
 
-    *   A list of zero or more input operands (or arguments), which are SSA
-        values defined by other operations or referring to block arguments.
+    *   一组零个或多个输入操作数(operands)（或参数(arguments)），这些operands是由其他operation定义的 SSA 值，
+        或是引用了块参数(block arguments)。
 
 -   `{ inplace = true }`
 
-    *   A dictionary of zero or more attributes, which are special operands that
-        are always constant. Here we define a boolean attribute named 'inplace'
-        that has a constant value of true.
+    *  一个包含零个或多个属性(attributes)的字典(dictionary)，这些属性(attribute)是特殊的操作数(operands)，
+      始终是常量。在这里，我们定义了一个名为 `inplace` 的布尔属性，其常量值为 `true`。
 
 -   `(tensor<2x3xf64>) -> tensor<3x2xf64>`
 
-    *   This refers to the type of the operation in a functional form, spelling
-        the types of the arguments in parentheses and the type of the return
-        values afterward.
+    *  这指的是operation的类型(type)，以函数形式表示，参数的类型写在括号中，返回值的类型则写在后面。
 
 -   `loc("example/file/path":12:1)`
 
-    *   This is the location in the source code from which this operation
-        originated.
+    *   这是该operation来源于源代码中的位置。
 
-Shown here is the general form of an operation. As described above,
-the set of operations in MLIR is extensible. Operations are modeled
-using a small set of concepts, enabling operations to be reasoned
-about and manipulated generically. These concepts are:
+这里展示的是operation的一般形式。如上所述，MLIR 中的operation集是可扩展的。
+operation是使用一小组概念来建模的，这些概念使得operation能够以通用的方式进行推理和操作。这些概念包括：
 
--   A name for the operation.
--   A list of SSA operand values.
--   A list of [attributes](../../LangRef.md/#attributes).
--   A list of [types](../../LangRef.md/#type-system) for result values.
--   A [source location](../../Diagnostics.md/#source-locations) for debugging
-    purposes.
--   A list of successors [blocks](../../LangRef.md/#blocks) (for branches,
-    mostly).
--   A list of [regions](../../LangRef.md/#regions) (for structural operations
-    like functions).
+-   operation的名称。
+-   一组 SSA 操作数值 operand values。
+-   一组[属性(attributes)](../../LangRef.md/#attributes)。
+-   一组结果值的[类型(types)](../../LangRef.md/#type-system)。
+-   用于调试目的的[源位置(source location)](../../Diagnostics.md/#source-locations)。
+-   一组后继[块(blocks)](../../LangRef.md/#blocks)（主要用于分支）。
+-   一组[区域(regions)](../../LangRef.md/#regions)（用于像函数这样的结构化操作）。
 
-In MLIR, every operation has a mandatory source location associated with it.
-Contrary to LLVM, where debug info locations are metadata and can be dropped, in
-MLIR, the location is a core requirement, and APIs depend on and manipulate it.
-Dropping a location is thus an explicit choice which cannot happen by mistake.
 
-To provide an illustration: If a transformation replaces an operation by
-another, that new operation must still have a location attached. This makes it
-possible to track where that operation came from.
+在 MLIR 中，每个operation都有一个强制关联的源位置(source location)。
+与 LLVM 不同，在 LLVM 中，调试信息的位置是元数据，可以被丢弃，而在 MLIR 中，位置是核心要求，
+API 依赖并操作它。因此，丢弃位置是一个显式的选择，不会意外发生。
 
-It's worth noting that the mlir-opt tool - a tool for testing
-compiler passes - does not include locations in the output by default. The
-`-mlir-print-debuginfo` flag specifies to include locations. (Run `mlir-opt
---help` for more options.)
+为了提供一个说明：如果某个转换将一个operation替换为另一个operation，
+那么新的operation仍然必须附带位置。这使得追踪该operation来源成为可能。
+
+值得注意的是，`mlir-opt` 工具——一个用于测试编译器通道的工具——默认情况下不在输出中包括位置。
+`-mlir-print-debuginfo` 标志指定要包含位置。（运行 `mlir-opt --help` 获取更多选项。）
+
 
 ### Opaque API
 
@@ -122,6 +116,16 @@ the above fundamental concepts. This allows MLIR to parse, represent, and
 operation. For example, we could place our Toy operation from above into an
 `.mlir` file and round-trip through *mlir-opt* without registering any `toy`
 related dialect:
+
+### 不透明 API(Opaque API)
+
+MLIR 设计允许所有 IR 元素，如属性、操作和类型(attributes, operations, and
+types)，进行自定义。
+与此同时，IR 元素始终可以还原为上述基本概念。这使得 MLIR 能够解析、表示并为
+ *任何(any)* operation进行[往返(round-trip)](../../../getting_started/Glossary.md/#round-trip) IR。
+例如，我们可以将上面的 Toy operation放入一个 `.mlir` 文件中，
+并通过 *mlir-opt* 进行round-trip，而无需注册任何与 `toy` 相关的方言：
+
 
 ```mlir
 func.func @toy_func(%tensor: tensor<2x3xf64>) -> tensor<3x2xf64> {
@@ -143,102 +147,99 @@ manipulate.
 This handling can be observed by crafting what should be an invalid IR for Toy
 and seeing it round-trip without tripping the verifier:
 
+对于未注册的属性、操作和类型，MLIR 会强制执行一些结构约束（例如，支配关系等），
+但除此之外，它们是完全不透明的。例如，MLIR 对未注册的操作是否可以操作特定数据类型、
+它可以接受多少操作数或产生多少结果几乎没有信息。这种灵活性对于引导工作流程是有用的，
+但在成熟的系统中通常不建议使用。未注册的操作必须由转换和分析以保守的方式处理，并且它们更难构建和操作。
+
+可以通过构造一个本应是无效的 Toy IR 来观察这种处理方式，并查看它如何在不触发验证器的情况下进行round-trip：
+
 ```mlir
 func.func @main() {
   %0 = "toy.print"() : () -> tensor<2x3xf64>
 }
 ```
 
-There are multiple problems here: the `toy.print` operation is not a terminator;
-it should take an operand; and it shouldn't return any values. In the next
-section, we will register our dialect and operations with MLIR, plug into the
-verifier, and add nicer APIs to manipulate our operations.
 
-## Defining a Toy Dialect
 
-To effectively interface with MLIR, we will define a new Toy dialect. This
-dialect will model the structure of the Toy language, as well as provide an easy
-avenue for high-level analysis and transformation.
+这里有多个问题：`toy.print` 操作不是终结符；它应该接受一个操作数；并且不应该返回任何值。
+在下一节中，我们将把我们的方言和操作注册到 MLIR 中，接入验证器(verifier)，并添加更友好的 API 来操作我们的operations。
+
+## 定义一个 Toy 方言(Toy Dialect)
+
+为了有效地与 MLIR 进行接口交互，我们将定义一个新的 Toy 方言。这个方言将建模 Toy 语言的结构，
+并提供一种便捷的途径用于high-level分析和转换。
 
 ```c++
-/// This is the definition of the Toy dialect. A dialect inherits from
-/// mlir::Dialect and registers custom attributes, operations, and types. It can
-/// also override virtual methods to change some general behavior, which will be
-/// demonstrated in later chapters of the tutorial.
+/// 这是 Toy 方言的定义。一个方言继承自 mlir::Dialect，
+/// 并注册自定义的属性、操作和类型。它还可以重写virtual方法以更改一些通用行为，相关内容将在教程的后续章节中演示。
+
 class ToyDialect : public mlir::Dialect {
 public:
   explicit ToyDialect(mlir::MLIRContext *ctx);
 
-  /// Provide a utility accessor to the dialect namespace.
+
+  /// 提供一个访问方言命名空间的实用程序访问器(accessor)。
   static llvm::StringRef getDialectNamespace() { return "toy"; }
 
-  /// An initializer called from the constructor of ToyDialect that is used to
-  /// register attributes, operations, types, and more within the Toy dialect.
+  /// 从 ToyDialect 构造函数中调用的initializer，用于在 Toy 方言中注册属性、操作、类型等内容。
   void initialize();
 };
 ```
 
-This is the C++ definition of a dialect, but MLIR also supports defining
-dialects declaratively via
-[tablegen](https://llvm.org/docs/TableGen/ProgRef.html). Using the declarative
-specification is much cleaner as it removes the need for a large portion of the
-boilerplate when defining a new dialect. It also enables easy generation of
-dialect documentation, which can be described directly alongside the dialect. In
-this declarative format, the toy dialect would be specified as:
+
+这是方言的 C++ 定义，但 MLIR 也支持通过 [tablegen](https://llvm.org/docs/TableGen/ProgRef.html) 声明性地定义方言。
+使用声明性规范要更简洁，因为它消除了在定义新方言时需要大量样板代码的需求。
+它还使得方言文档的生成变得更加容易，文档可以直接与方言一起描述。在这种声明性格式中，Toy 方言将被指定为：
+
 
 ```tablegen
-// Provide a definition of the 'toy' dialect in the ODS framework so that we
-// can define our operations.
+// 在 ODS 框架中提供 'toy' dialect的定义，以便我们能够定义我们的operations。
 def Toy_Dialect : Dialect {
-  // The namespace of our dialect, this corresponds 1-1 with the string we
-  // provided in `ToyDialect::getDialectNamespace`.
+  // 我们方言的命名空间，这与我们在 `ToyDialect::getDialectNamespace` 中提供的字符串一一对应。
   let name = "toy";
 
-  // A short one-line summary of our dialect.
-  let summary = "A high-level dialect for analyzing and optimizing the "
-                "Toy language";
+  // 我们方言的简短总结。
+  let summary = "用于分析和优化 Toy 语言的高级方言";
 
-  // A much longer description of our dialect.
+  // 我们方言的更长描述。
   let description = [{
-    The Toy language is a tensor-based language that allows you to define
-    functions, perform some math computation, and print results. This dialect
-    provides a representation of the language that is amenable to analysis and
-    optimization.
+    Toy 语言是一种基于张量的语言，允许你定义函数、执行一些数学计算并打印结果。这个方言提供了该语言的表示形式，有利于分析和优化。
   }];
 
-  // The C++ namespace that the dialect class definition resides in.
+  // 方言类定义所在的 C++ 命名空间。
   let cppNamespace = "toy";
 }
 ```
 
-To see what this generates, we can run the `mlir-tblgen` command with the
-`gen-dialect-decls` action like so:
+
+
+为了查看这会生成什么，我们可以运行 `mlir-tblgen` 命令，并使用 `gen-dialect-decls` 操作，如下所示：
 
 ```shell
 ${build_root}/bin/mlir-tblgen -gen-dialect-decls ${mlir_src_root}/examples/toy/Ch2/include/toy/Ops.td -I ${mlir_src_root}/include/
 ```
 
-After the dialect has been defined, it can now be loaded into an MLIRContext:
+在方言定义完成后，它现在可以加载到 MLIRContext 中：
 
 ```c++
   context.loadDialect<ToyDialect>();
 ```
 
-By default, an `MLIRContext` only loads the
-[Builtin Dialect](../../Dialects/Builtin.md), which provides a few core IR
-components, meaning that other dialects, such as our `Toy` dialect, must be
-explicitly loaded.
+默认情况下，`MLIRContext` 只加载 [Builtin Dialect](../../Dialects/Builtin.md)，
+该方言提供了一些核心的 IR 组件，这意味着其他方言，如我们的 `Toy` 方言，必须显式加载。
 
-## Defining Toy Operations
 
-Now that we have a `Toy` dialect, we can start defining the operations. This
-will allow for providing semantic information that the rest of the system can
-hook into. As an example, let's walk through the creation of a `toy.constant`
-operation. This operation will represent a constant value in the Toy language.
+
+## 定义 Toy 操作 Toy Operations
+
+现在我们已经有了一个 `Toy` dialect，我们可以开始定义operations。这将允许提供语义信息，
+供系统的其他部分使用。例如，让我们通过创建一个 `toy.constant` 操作来进行演示。这个操作将表示 Toy 语言中的常量值。
 
 ```mlir
  %4 = "toy.constant"() {value = dense<1.0> : tensor<2x3xf64>} : () -> tensor<2x3xf64>
 ```
+
 
 This operation takes zero operands, a
 [dense elements](../../Dialects/Builtin.md/#denseintorfpelementsattr) attribute named
@@ -251,58 +252,58 @@ additional behavior into an Operation, such as additional accessors,
 verification, and more. Let's look below at a possible definition for the
 constant operation that we have described above:
 
+该操作接受零个操作数，一个名为 `value` 的 [dense elements](../../Dialects/Builtin.md/#denseintorfpelementsattr) 属性，
+用于表示常量值，并返回一个 [RankedTensorType](../../Dialects/Builtin.md/#rankedtensortype) 类型的单个结果。
+operation类继承自 [CRTP](https://en.wikipedia.org/wiki/Curiously_recurring_template_pattern) 的 `mlir::Op` 类，
+该类还可以接受一些可选的 [*traits*](../../Traits)，以自定义其行为。
+`Traits` 是一种机制，我们可以通过它将额外的行为注入到operation中，例如额外的访问器、验证等。下面我们来看一下可能的常量操作定义：
+
+
 ```c++
 class ConstantOp : public mlir::Op<
-                     /// `mlir::Op` is a CRTP class, meaning that we provide the
-                     /// derived class as a template parameter.
+                     /// `mlir::Op` 是一个 CRTP 类，意味着我们将派生类作为模板参数提供。
                      ConstantOp,
-                     /// The ConstantOp takes zero input operands.
+                     /// ConstantOp 接受零个输入操作数。
                      mlir::OpTrait::ZeroOperands,
-                     /// The ConstantOp returns a single result.
+                     /// ConstantOp 返回一个单一结果。
                      mlir::OpTrait::OneResult,
-                     /// We also provide a utility `getType` accessor that
-                     /// returns the TensorType of the single result.
+                     /// 我们还提供一个实用的 `getType` 访问器，用于返回单一结果的 TensorType。
                      mlir::OpTraits::OneTypedResult<TensorType>::Impl> {
 
  public:
-  /// Inherit the constructors from the base Op class.
+  /// 继承自基础 Op 类的构造函数。
   using Op::Op;
 
-  /// Provide the unique name for this operation. MLIR will use this to register
-  /// the operation and uniquely identify it throughout the system. The name
-  /// provided here must be prefixed by the parent dialect namespace followed
-  /// by a `.`.
+  /// 提供此操作的唯一名称。MLIR 将使用此名称注册操作，并在整个系统中唯一标识它。
+  /// 这里提供的名称必须以父方言命名空间为前缀，后跟 `.`。
   static llvm::StringRef getOperationName() { return "toy.constant"; }
 
-  /// Return the value of the constant by fetching it from the attribute.
+  /// 通过从属性中获取常量值来返回常量。
   mlir::DenseElementsAttr getValue();
 
-  /// Operations may provide additional verification beyond what the attached
-  /// traits provide.  Here we will ensure that the specific invariants of the
-  /// constant operation are upheld, for example the result type must be
-  /// of TensorType and matches the type of the constant `value`.
+  /// Operations可以提供额外的验证，超出所附 traits 的内容。
+  /// 在这里我们将确保常量操作的特定不变式得到遵守，例如，结果类型必须是 TensorType，
+  /// 并且与常量 `value` 的类型匹配。
   LogicalResult verifyInvariants();
 
-  /// Provide an interface to build this operation from a set of input values.
-  /// This interface is used by the `builder` classes to allow for easily
-  /// generating instances of this operation:
+  /// 提供一个接口，通过一组输入值来构建此操作。
+  /// 这个接口被 `builder` 类使用，允许轻松生成此操作的实例：
   ///   mlir::OpBuilder::create<ConstantOp>(...)
-  /// This method populates the given `state` that MLIR uses to create
-  /// operations. This state is a collection of all of the discrete elements
-  /// that an operation may contain.
-  /// Build a constant with the given return type and `value` attribute.
+  /// 此方法填充 MLIR 用于创建操作的给定 `state`。该 state 是操作可能包含的所有离散元素(discrete elements)的集合。
+  /// 使用给定的返回类型和 `value` 属性构建常量。
   static void build(mlir::OpBuilder &builder, mlir::OperationState &state,
                     mlir::Type result, mlir::DenseElementsAttr value);
-  /// Build a constant and reuse the type from the given 'value'.
+  /// 通过给定的 'value' 重用类型来构建常量。
   static void build(mlir::OpBuilder &builder, mlir::OperationState &state,
                     mlir::DenseElementsAttr value);
-  /// Build a constant by broadcasting the given 'value'.
+  /// 通过广播给定的 'value' 来构建常量。
   static void build(mlir::OpBuilder &builder, mlir::OperationState &state,
                     double value);
 };
 ```
 
-and we can register this operation in the `ToyDialect` initializer:
+
+我们可以在 `ToyDialect` 初始化器(initializer)中注册这个操作：
 
 ```c++
 void ToyDialect::initialize() {
@@ -310,42 +311,41 @@ void ToyDialect::initialize() {
 }
 ```
 
-### Op vs Operation: Using MLIR Operations
 
-Now that we have defined an operation, we will want to access and transform it.
-In MLIR, there are two main classes related to operations: `Operation` and `Op`.
-The `Operation` class is used to generically model all operations. It is
-'opaque', in the sense that it does not describe the properties of particular
-operations or types of operations. Instead, the `Operation` class provides a
-general API into an operation instance. On the other hand, each specific type of
-operation is represented by an `Op` derived class. For instance `ConstantOp`
-represents a operation with zero inputs, and one output, which is always set to
-the same value. `Op` derived classes act as smart pointer wrapper around a
-`Operation*`, provide operation-specific accessor methods, and type-safe
-properties of operations. This means that when we define our Toy operations, we
-are simply defining a clean, semantically useful interface for building and
-interfacing with the `Operation` class. This is why our `ConstantOp` defines no
-class fields; all of the data for this operation is stored in the referenced
-`Operation`. A side effect of this design is that we always pass around `Op`
-derived classes "by-value", instead of by reference or pointer (*passing by
-value* is a common idiom in MLIR and applies similarly to attributes, types,
-etc). Given a generic `Operation*` instance, we can always get a specific `Op`
-instance using LLVM's casting infrastructure:
+### Op 与 Operation：使用 MLIR Operations
+
+现在我们已经定义了一个operation，我们将希望访问并转换它。
+在 MLIR 中，与operation相关的主要有两个类：`Operation` 和 `Op`。
+`Operation` 类用于通用地建模所有operation。它是“不可知的(opaque)”，意味着它不描述特定operation的属性或操作类型。
+相反，`Operation` 类提供了一个通用的 API 来访问operation实例。
+另一方面，每种特定类型的operation由一个 `Op` 派生类表示。
+例如，`ConstantOp` 表示一个具有零个输入和一个输出的操作，该输出始终设置为相同的值。
+`Op` 派生类充当 `Operation*` 的智能指针包装器(smart pointer wrapper)，
+提供特定于operation的访问方法和类型安全的操作属性。
+这意味着，当我们定义我们的 Toy 操作时，我们只是为构建和与 `Operation` 类交互定义了一个简洁、语义上有用的接口。
+这就是为什么我们的 `ConstantOp` 不定义任何类字段；
+所有的操作数据都存储在引用的 `Operation` 中。
+该设计的副作用是，我们总是“按值”传递 `Op` 派生类，
+而不是按引用或指针传递（*按值传递(passing byvalue)* 是 MLIR 中常见的惯用法，也适用于属性、类型等）。
+给定一个通用的 `Operation*` 实例，我们总是可以使用 LLVM 的类型转换基础设施来获取特定的 `Op` 实例：
+
 
 ```c++
 void processConstantOp(mlir::Operation *operation) {
   ConstantOp op = llvm::dyn_cast<ConstantOp>(operation);
 
-  // This operation is not an instance of `ConstantOp`.
+  // 这个操作不是 `ConstantOp` 的实例。
   if (!op)
     return;
 
-  // Get the internal operation instance wrapped by the smart pointer.
+  // 获取智能指针包装的内部操作实例。
   mlir::Operation *internalOperation = op.getOperation();
   assert(internalOperation == operation &&
-         "these operation instances are the same");
+         "这些操作实例是相同的");
 }
 ```
+
+
 
 ### Using the Operation Definition Specification (ODS) Framework
 
@@ -364,43 +364,53 @@ Operations in ODS are defined by inheriting from the `Op` class. To simplify our
 operation definitions, we will define a base class for operations in the Toy
 dialect.
 
+
+### 使用操作定义规范（ODS）框架
+
+除了专门化 `mlir::Op` C++ 模板外，MLIR 还支持以声明性方式定义操作。
+这是通过 [Operation Definition Specification](../../DefiningDialects/Operations.md) 框架实现的。
+Operation的事实被简洁地指定为 TableGen 记录，这些记录将在编译时扩展为等效的 `mlir::Op` C++ 模板实例化。
+鉴于其简单性、简洁性以及在面对 C++ API 变化时的普遍稳定性，使用 ODS 框架是定义 MLIR 操作的推荐方式。
+
+让我们看看如何定义与我们 `ConstantOp` 等效的 ODS：
+
+ODS 中的Operation通过继承自 `Op` 类来定义。为了简化我们的Operation定义，我们将在 Toy 方言中为操作定义一个基类。
+
+
 ```tablegen
-// Base class for toy dialect operations. This operation inherits from the base
-// `Op` class in OpBase.td, and provides:
-//   * The parent dialect of the operation.
-//   * The mnemonic for the operation, or the name without the dialect prefix.
-//   * A list of traits for the operation.
+// Toy 方言操作的基类。该操作继承自 OpBase.td 中的基础 `Op` 类，并提供：
+//   * 操作的父方言。
+//   * 操作的助记符，或者没有方言前缀的名称。
+//   * 操作的特征列表。
 class Toy_Op<string mnemonic, list<Trait> traits = []> :
     Op<Toy_Dialect, mnemonic, traits>;
+
 ```
 
-With all of the preliminary pieces defined, we can begin to define the constant
-operation.
+定义好所有初步的组件后，我们可以开始定义常量operation。
 
-We define a toy operation by inheriting from our base 'Toy_Op' class above. Here
-we provide the mnemonic and a list of traits for the operation. The
-[mnemonic](../../DefiningDialects/Operations.md/#operation-name) here matches the one given in
-`ConstantOp::getOperationName` without the dialect prefix; `toy.`. Missing here
-from our C++ definition are the `ZeroOperands` and `OneResult` traits; these
-will be automatically inferred based upon the `arguments` and `results` fields
-we define later.
+我们通过继承上面定义的基类 'Toy_Op' 来定义一个 Toy operation。
+在这里，我们为operation提供助记符(mnemonic)和一组特征列表。
+此处的 [mnemonic](../../DefiningDialects/Operations.md/#operation-name) 与 
+`ConstantOp::getOperationName` 中提供的名称相匹配，
+但没有方言前缀 `toy.`。在我们的 C++ 定义中缺少的是 `ZeroOperands` 和 `OneResult` 特征；
+这些将基于我们稍后定义的 `arguments` 和 `results` 字段自动推导。
+
 
 ```tablegen
 def ConstantOp : Toy_Op<"constant"> {
 }
 ```
 
-At this point you probably might want to know what the C++ code generated by
-TableGen looks like. Simply run the `mlir-tblgen` command with the
-`gen-op-decls` or the `gen-op-defs` action like so:
+在这一点上，您可能想了解由 TableGen 生成的 C++ 代码是什么样的。
+只需运行 `mlir-tblgen` 命令，并使用 `gen-op-decls` 或 `gen-op-defs` 操作，如下所示：
 
 ```shell
 ${build_root}/bin/mlir-tblgen -gen-op-defs ${mlir_src_root}/examples/toy/Ch2/include/toy/Ops.td -I ${mlir_src_root}/include/
 ```
 
-Depending on the selected action, this will print either the `ConstantOp` class
-declaration or its implementation. Comparing this output to the hand-crafted
-implementation is incredibly useful when getting started with TableGen.
+根据所选操作，这将打印 `ConstantOp` 类的声明或其实现。
+在开始使用 TableGen 时，将此输出与手工编写的实现进行比较是非常有帮助的。
 
 #### Defining Arguments and Results
 
@@ -411,35 +421,42 @@ inputs, or arguments, to an operation may be attributes or types for SSA operand
 values. The results correspond to a set of types for the values produced by the
 operation:
 
+
+#### 定义输入和输出
+
+在定义了operation的框架后，我们现在可以为operation提供
+ [inputs](../../DefiningDialects/Operations.md/#operation-arguments) 和
+  [outputs](../../DefiningDialects/Operations.md/#operation-results)。操作的输入，
+  或称为参数，可以是属性或用于 SSA 操作数值的类型。输出对应于操作产生的值的类型集合：
+
 ```tablegen
 def ConstantOp : Toy_Op<"constant"> {
-  // The constant operation takes an attribute as the only input.
-  // `F64ElementsAttr` corresponds to a 64-bit floating-point ElementsAttr.
+
+  // 常量操作将属性作为唯一输入。
+  // `F64ElementsAttr` 对应于一个 64 位浮点元素属性。
   let arguments = (ins F64ElementsAttr:$value);
 
-  // The constant operation returns a single value of TensorType.
-  // F64Tensor corresponds to a 64-bit floating-point TensorType.
+  // 常量操作返回一个 TensorType 类型的单一值。
+  // F64Tensor 对应于一个 64 位浮点 TensorType。
   let results = (outs F64Tensor);
+
 }
 ```
 
-By providing a name to the arguments or results, e.g. `$value`, ODS will
-automatically generate a matching accessor: `DenseElementsAttr
-ConstantOp::value()`.
+通过为参数或结果提供名称，例如 `$value`，
+ODS 将自动生成一个匹配的访问器accessor：`DenseElementsAttr ConstantOp::value()`。
 
-#### Adding Documentation
 
-The next step after defining the operation is to document it. Operations may
-provide
-[`summary` and `description`](../../DefiningDialects/Operations.md/#operation-documentation)
-fields to describe the semantics of the operation. This information is useful
-for users of the dialect and can even be used to auto-generate Markdown
-documents.
+#### 添加文档
+
+定义operation后的下一步是为其添加文档。
+操作可以提供 [`summary` 和 `description`](../../DefiningDialects/Operations.md/#operation-documentation) 
+字段来描述操作的语义。这些信息对于方言的用户非常有用，甚至可以用来自动生成 Markdown 文档。
+
 
 ```tablegen
 def ConstantOp : Toy_Op<"constant"> {
-  // Provide a summary and description for this operation. This can be used to
-  // auto-generate documentation of the operations within our dialect.
+  // 为此操作提供摘要和描述。可以用来自动生成我们方言中操作的文档。
   let summary = "constant operation";
   let description = [{
     Constant operation turns a literal into an SSA value. The data is attached
@@ -450,12 +467,12 @@ def ConstantOp : Toy_Op<"constant"> {
         : () -> tensor<2x3xf64>
   }];
 
-  // The constant operation takes an attribute as the only input.
-  // `F64ElementsAttr` corresponds to a 64-bit floating-point ElementsAttr.
+  // 常量操作将属性作为唯一输入。
+  // `F64ElementsAttr` 对应于一个 64 位浮点元素属性。
   let arguments = (ins F64ElementsAttr:$value);
 
-  // The generic call operation returns a single value of TensorType.
-  // F64Tensor corresponds to a 64-bit floating-point TensorType.
+  // 通用调用操作返回一个 TensorType 类型的单一值。
+  // F64Tensor 对应于一个 64 位浮点 TensorType。
   let results = (outs F64Tensor);
 }
 ```
@@ -473,6 +490,16 @@ can override the [`verifier`](../../DefiningDialects/Operations.md/#custom-verif
 field. The `verifier` field allows for defining a C++ code blob that will be run
 as part of `ConstantOp::verify`. This blob can assume that all of the other
 invariants of the operation have already been verified:
+
+#### 验证操作语义
+
+到目前为止，我们已经涵盖了大部分原始 C++ 操作定义。接下来需要定义的是验证器(verifier)。
+幸运的是，像命名访问器一样，ODS 框架会根据我们给定的约束自动生成大量必要的验证逻辑。
+这意味着我们不需要验证返回类型的结构，甚至不需要验证输入属性 `value`。
+在许多情况下，ODS 操作甚至不需要额外的验证。为了添加额外的验证逻辑，
+operation可以重写 [`verifier`](../../DefiningDialects/Operations.md/#custom-verifier-code) 字段。
+`verifier` 字段允许定义一个 C++ 代码块，该代码块将在 `ConstantOp::verify` 中作为一部分运行。
+此代码块可以假设操作的其他所有不变式已经通过验证：
 
 ```tablegen
 def ConstantOp : Toy_Op<"constant"> {
@@ -515,6 +542,15 @@ takes a list of `OpBuilder` objects that take a string corresponding to a list
 of C++ parameters, as well as an optional code block that can be used to specify
 the implementation inline.
 
+
+#### 附加 `build` 方法
+
+在我们原始 C++ 示例中，最后一个缺失的部分是 `build` 方法。
+ODS 可以自动生成一些简单的构建方法，在这种情况下，它将为我们生成第一个构建方法。
+对于其余的部分，我们定义 [`builders`](../../DefiningDialects/Operations.md/#custom-builder-methods) 字段。
+此字段接受一个 `OpBuilder` 对象的列表，这些对象接收一个对应于 C++ 参数列表的字符串，以及一个可选的代码块，用于指定内联实现。
+
+
 ```tablegen
 def ConstantOp : Toy_Op<"constant"> {
   ...
@@ -536,9 +572,9 @@ def ConstantOp : Toy_Op<"constant"> {
 }
 ```
 
-#### Specifying a Custom Assembly Format
+#### 指定自定义汇编格式
 
-At this point we can generate our "Toy IR". For example, the following:
+到此为止，我们可以生成我们的“Toy IR”。例如，以下内容：
 
 ```toy
 # User defined generic function that operates on unknown shaped arguments.
@@ -555,7 +591,7 @@ def main() {
 }
 ```
 
-Results in the following IR:
+产生以下 IR：
 
 ```mlir
 module {
@@ -588,6 +624,12 @@ imperatively via C++. Defining a custom assembly format allows for tailoring the
 generated IR into something a bit more readable by removing a lot of the fluff
 that is required by the generic format. Let's walk through an example of an
 operation format that we would like to simplify.
+
+需要注意的一点是，我们所有的 Toy operations都使用通用汇编格式打印出来。
+这个格式在本章开始时拆解 `toy.transpose` 时就已经展示过了。MLIR 允许operations定义它们自己的自定义汇编格式，
+可以通过 [declaratively](../../DefiningDialects/Operations.md/#declarative-assembly-format) 
+或通过 C++ 命令式方式定义。定义自定义汇编格式允许通过去除通用格式中许多冗余的内容，
+将生成的 IR 调整为更易读的形式。让我们通过一个示例来看如何简化操作格式。
 
 ##### `toy.print`
 
